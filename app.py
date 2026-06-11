@@ -96,17 +96,49 @@ if uploaded is not None:
         X = df[predictors].copy()
         y = df[target].copy()
 
-        if not y.dropna().isin([0, 1]).all():
+        # ---------- convertir target a 0/1 ----------
+        y_unicos = y.dropna().unique()
+        if len(y_unicos) != 2:
             st.error(
-                f"La variable '{target}' debe contener solo valores 0 y 1."
+                f"La columna '{target}' tiene {len(y_unicos)} valores distintos. "
+                "Debe tener exactamente 2 (ej: 0/1, si/no, true/false)."
             )
             st.stop()
 
+        if not set(y_unicos).issubset({0, 1}):
+            y = y.astype(str).str.lower()
+            mapeo_auto = {str(v): i for i, v in enumerate(sorted(set(y_unicos), key=str))}
+            y = y.map(mapeo_auto).astype(int)
+            valores_orig = sorted(set(y_unicos), key=str)
+            st.info(
+                f"Target convertido automáticamente: '{valores_orig[0]}' → 0, "
+                f"'{valores_orig[1]}' → 1"
+            )
+
+        # ---------- convertir predictores categóricos ----------
+        col_texto = X.select_dtypes(include=["object", "category", "string"]).columns.tolist()
+        if col_texto:
+            st.info(
+                f"Columnas categóricas convertidas automáticamente: "
+                f"{', '.join(col_texto)}"
+            )
+            X = pd.get_dummies(X, columns=col_texto, drop_first=True)
+
+        # ---------- eliminar columnas con un solo valor ----------
+        X = X.loc[:, X.nunique() > 1]
+
+        if X.shape[1] == 0:
+            st.error("No quedan columnas predictoras válidas después de la conversión.")
+            st.stop()
+
+        # guardar nombres reales de columnas (post-transformación)
+        X_cols_final = [c for c in X.columns if c != "const"]
+
         # agregar constante
-        X = sm.add_constant(X)
+        X = sm.add_constant(X, has_constant="skip")
 
         with st.spinner("Calculando regresión logística..."):
-            modelo = sm.Logit(y, X)
+            modelo = sm.Logit(y, X.astype(float))
             try:
                 resultado = modelo.fit(disp=False, maxiter=200)
             except Exception as e:
@@ -115,8 +147,10 @@ if uploaded is not None:
 
         st.session_state.model_fitted = modelo
         st.session_state.result = resultado
-        st.session_state.X_cols = predictors
+        st.session_state.X_cols = X_cols_final
         st.session_state.y_col = target
+        st.session_state.original_predictors = predictors
+        st.session_state.col_texto = col_texto
 
         st.success("Modelo calculado correctamente.")
         st.balloons()
@@ -127,10 +161,23 @@ if uploaded is not None:
         X_cols = st.session_state.X_cols
         target = st.session_state.y_col
         df = st.session_state.df
-        X = sm.add_constant(df[X_cols])
-        y = df[target]
+        orig_preds = st.session_state.original_predictors
+        col_texto = st.session_state.col_texto
 
-        pred_prob = resultado.predict(X)
+        X = df[orig_preds].copy()
+        if col_texto:
+            X = pd.get_dummies(X, columns=col_texto, drop_first=True)
+        X = X.loc[:, X.nunique() > 1]
+        X = sm.add_constant(X, has_constant="skip")
+
+        y = df[target].copy()
+        y_unicos = y.dropna().unique()
+        if not set(y_unicos).issubset({0, 1}):
+            y = y.astype(str).str.lower()
+            mapeo_auto = {str(v): i for i, v in enumerate(sorted(set(y_unicos), key=str))}
+            y = y.map(mapeo_auto).astype(int)
+
+        pred_prob = resultado.predict(X.astype(float))
         pred_class = (pred_prob >= 0.5).astype(int)
 
         st.divider()
@@ -238,26 +285,40 @@ if uploaded is not None:
         st.subheader("Calculadora de probabilidad")
 
         if st.session_state.model_fitted is not None:
-            X_pred = []
-            calc_cols = st.columns(min(3, len(X_cols)))
-            for i, col in enumerate(X_cols):
+            orig_preds = st.session_state.original_predictors
+            col_texto = st.session_state.col_texto
+
+            # construir input como dict
+            input_dict = {}
+            calc_cols = st.columns(min(3, len(orig_preds)))
+            for i, col in enumerate(orig_preds):
                 with calc_cols[i % len(calc_cols)]:
-                    c_min = float(df[col].min())
-                    c_max = float(df[col].max())
-                    val = st.slider(
-                        f"{col}",
-                        min_value=c_min,
-                        max_value=c_max,
-                        value=(c_min + c_max) / 2,
-                        step=(c_max - c_min) / 100 if c_max != c_min else 1.0,
-                    )
-                    X_pred.append(val)
+                    if col in col_texto:
+                        opciones = sorted(df[col].dropna().unique())
+                        val = st.selectbox(f"{col}", opciones)
+                        input_dict[col] = val
+                    else:
+                        c_min = float(df[col].min())
+                        c_max = float(df[col].max())
+                        val = st.slider(
+                            f"{col}",
+                            min_value=c_min,
+                            max_value=c_max,
+                            value=(c_min + c_max) / 2,
+                            step=(c_max - c_min) / 100 if c_max != c_min else 1.0,
+                        )
+                        input_dict[col] = val
 
             if st.button("Calcular probabilidad"):
-                input_df = pd.DataFrame(
-                    [[1] + X_pred], columns=["const"] + X_cols
-                )
-                prob = resultado.predict(input_df)[0]
+                input_df = pd.DataFrame([input_dict])
+                if col_texto:
+                    input_df = pd.get_dummies(input_df, columns=col_texto, drop_first=True)
+                for c in X_cols:
+                    if c not in input_df.columns:
+                        input_df[c] = 0
+                input_df = input_df[X_cols]
+                input_df = sm.add_constant(input_df, has_constant="add")
+                prob = resultado.predict(input_df.astype(float))[0]
                 st.markdown(
                     f"### Probabilidad: {prob:.2%}"
                 )
