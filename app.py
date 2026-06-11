@@ -9,6 +9,39 @@ st.set_page_config(page_title="Regresión Logística", layout="centered")
 st.title("Regresión Logística")
 st.markdown("Carga un archivo CSV y analiza la relación entre variables.")
 
+# ---------- documentación inicial ----------
+with st.expander("📖 ¿Cómo funciona esta aplicación?"):
+    st.markdown("""
+    ### ¿Qué es la regresión logística?
+
+    Es un método estadístico que permite **predecir si algo ocurre o no** (sí/no, 0/1)
+    basándose en una o más variables de entrada.
+
+    **Ejemplo con tus datos:** predecir si una persona **compra** (1) o **no compra** (0)
+    según su edad, salario, género, estrato e hijos.
+
+    ### ¿Qué necesito?
+
+    - Un archivo **CSV** con una columna que tenga solo **valores 0 y 1** (lo que quieres predecir)
+    - Una o más columnas adicionales que servirán como **predictores** (edad, salario, etc.)
+
+    ### ¿Qué voy a obtener?
+
+    | Resultado | ¿Qué me dice? |
+    |---|---|
+    | **Coeficientes B** | El peso de cada variable en la decisión final |
+    | **p-valor** | Si esa variable realmente influye o es solo ruido |
+    | **Odds Ratio** | Cuánto cambia la probabilidad al aumentar esa variable |
+    | **R²** | Qué tan bien el modelo explica los datos |
+    | **Chi-cuadrado** | Si el modelo es mejor que simplemente adivinar |
+    | **Matriz de confusión** | Cuántos aciertos y errores tiene el modelo |
+    | **Curva ROC / AUC** | Qué tan bien separa el modelo las dos clases |
+    | **Calculadora** | Permite probar valores y ver la probabilidad calculada |
+
+    ---
+    *Carga tu CSV y configura el modelo en la sección de abajo.*
+    """)
+
 # ---------- sesión para guardar el modelo ----------
 if "model_fitted" not in st.session_state:
     st.session_state.model_fitted = None
@@ -237,6 +270,143 @@ if uploaded is not None:
 
 else:
     st.info("Sube un archivo CSV para comenzar.")
+
+# ---------- documentación final detallada ----------
+st.divider()
+with st.expander("📖 Explicación detallada de cada resultado"):
+    st.markdown("""
+    ---
+    ### Coeficientes B
+
+    Cada variable predictora recibe un número llamado **coeficiente B**. Este número indica:
+
+    - **Si B es positivo (+):** al aumentar esa variable, **aumenta** la probabilidad de que ocurra el evento.
+    - **Si B es negativo (-):** al aumentar esa variable, **disminuye** la probabilidad de que ocurra el evento.
+    - **Si B es cero (0):** esa variable **no tiene efecto**.
+
+    **Fórmula:** Z = B₀ + B₁·X₁ + B₂·X₂ + ... + Bₙ·Xₙ  
+    donde B₀ es la constante y B₁, B₂... son los coeficientes de cada predictor.
+
+    ---
+    ### p-valor
+
+    El **p-valor** responde a la pregunta: ¿este coeficiente es confiable o podría ser producto del azar?
+
+    | p-valor | Significado |
+    |---|---|
+    | **p < 0.001** | Altamente significativo (***) |
+    | **p < 0.01** | Muy significativo (**) |
+    | **p < 0.05** | Significativo (*) — la variable **influye de verdad** |
+    | **p ≥ 0.05** | No significativo — la variable **no aporta** al modelo |
+
+    En la tabla de coeficientes, las variables con **p < 0.05** son las que realmente importan.
+
+    ---
+    ### Odds Ratio (e^B)
+
+    El **Odds Ratio** se calcula como **e^B** (elevar el número de Euler al coeficiente B).
+    Responde: ¿cuántas veces más probable es el evento cuando la variable aumenta una unidad?
+
+    - **OR = 1.5** → por cada unidad que aumenta la variable, la probabilidad aumenta **50%**
+    - **OR = 2.0** → por cada unidad, la probabilidad se **duplica**
+    - **OR = 0.5** → por cada unidad, la probabilidad se **reduce a la mitad**
+
+    ---
+    ### R² (McFadden, Cox & Snell, Nagelkerke)
+
+    Los **R²** miden qué tan bien el modelo explica los datos. Van de **0 a 1**:
+
+    - **0** → el modelo no explica nada (es como adivinar)
+    - **1** → el modelo explica todo (perfección, casi nunca pasa)
+    - **0.2 – 0.4** → valores típicos para problemas de ciencias sociales
+    - **> 0.5** → muy buen modelo
+
+    Se muestran tres versiones porque cada una ajusta el cálculo de forma distinta.
+    La más usada en regresión logística es **McFadden**.
+
+    ---
+    ### Chi-cuadrado
+
+    La **prueba Chi-cuadrado** compara tu modelo completo contra un modelo que solo tiene la constante
+    (es decir, un modelo que siempre predice el valor más frecuente sin usar ninguna variable).
+
+    - **Si p < 0.05** → tu modelo es **significativamente mejor** que adivinar ✅
+    - **Si p ≥ 0.05** → tu modelo **no es mejor** que adivinar ❌
+
+    Un Chi-cuadrado significativo es el primer requisito para que el modelo sea útil.
+
+    ---
+    ### Matriz de confusión
+
+    Compara lo que el modelo **predijo** contra lo que realmente **ocurrió**,
+    usando un **umbral del 50%** (si la probabilidad es ≥ 0.5, se clasifica como "Sí").
+
+    ```
+                        Predijo: No    Predijo: Sí
+    Real: No    →         TN (Bien)      FP (Falsa alarma)
+    Real: Sí    →         FN (Error)     TP (Bien)
+    ```
+
+    | Sigla | Significado | ¿Es bueno? |
+    |---|---|---|
+    | **TN** | True Negative — predijo No y era No | ✅ |
+    | **TP** | True Positive — predijo Sí y era Sí | ✅ |
+    | **FP** | False Positive — predijo Sí pero era No | ❌ (falsa alarma) |
+    | **FN** | False Negative — predijo No pero era Sí | ❌ (se lo perdió) |
+
+    **Precisión total = (TN + TP) / (TN + FP + FN + TP)**
+
+    ---
+    ### Curva ROC y AUC
+
+    La **curva ROC** grafica dos métricas para cada posible umbral de clasificación:
+
+    - **Eje Y (Sensibilidad):** qué tan bien detecta los "Sí" verdaderos
+    - **Eje X (1 - Especificidad):** cuántos "No" falsamente marca como "Sí"
+
+    La línea gris punteada representa un modelo **aleatorio** (adivinar).
+
+    **AUC (Área Bajo la Curva)** resume la calidad del modelo en un solo número:
+
+    | AUC | Significado |
+    |---|---|
+    | **0.5** | El modelo adivina (igual que lanzar una moneda) |
+    | **0.7 – 0.8** | Aceptable |
+    | **0.8 – 0.9** | Bueno |
+    | **0.9 – 1.0** | Excelente |
+    | **1.0** | Perfecto (casi nunca ocurre) |
+
+    ---
+    ### Calculadora de probabilidad
+
+    Después de entrenar el modelo, puedes probar **tus propios valores** moviendo los sliders.
+
+    El cálculo que hace es:
+
+    ```
+    1. Z = B₀ + B₁·X₁ + B₂·X₂ + ... + Bₙ·Xₙ
+    2. Probabilidad = 1 / (1 + e^(-Z))
+    ```
+
+    Donde:
+    - **B₀, B₁...** son los coeficientes que el modelo aprendió de tus datos
+    - **X₁, X₂...** son los valores que tú eliges en los sliders
+    - **e** es el número de Euler (~2.718)
+
+    Si la probabilidad es **≥ 50%** → el modelo predice **"Sí"**  
+    Si la probabilidad es **< 50%** → el modelo predice **"No"**
+
+    ---
+    ### Fórmula general del modelo
+
+    La regresión logística se define matemáticamente como:
+
+    $$P(Y=1) = \\frac{1}{1 + e^{-(\\beta_0 + \\beta_1 X_1 + \\beta_2 X_2 + ... + \\beta_n X_n)}}$$
+
+    Donde **P(Y=1)** es la probabilidad de que el evento ocurra, y los **β** son los coeficientes
+    que se estiman mediante el método de **máxima verosimilitud** (el modelo prueba diferentes
+    combinaciones de β hasta encontrar las que mejor se ajustan a tus datos).
+    """)
 
 st.divider()
 st.markdown(
